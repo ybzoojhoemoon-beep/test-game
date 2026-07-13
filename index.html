@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>せかいの国旗あてゲーム</title>
+    <style>
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; text-align: center; background-color: #f0f8ff; padding: 20px; color: #333; }
+        h1 { color: #ff4500; font-size: 24px; }
+        #flag-container { font-size: 80px; margin: 20px 0; min-height: 120px; }
+        .btn { display: block; width: 80%; max-width: 300px; margin: 10px auto; padding: 15px; font-size: 18px; font-weight: bold; background-color: #4caf50; color: white; border: none; border-radius: 25px; cursor: pointer; box-shadow: 0 4px #388e3c; }
+        .btn:active { box-shadow: none; transform: translateY(4px); }
+        #score { font-size: 20px; font-weight: bold; margin-top: 20px; }
+        #message { font-size: 22px; font-weight: bold; height: 30px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <h1>🗺️ せかいの国旗あてゲーム 🗺️</h1>
+    <p>ただしい 国の名前を えらんでね！</p>
+    
+    <!-- 絵文字の国旗を使って画像の手間を省略 -->
+    <div id="flag-container">🇯🇵</div>
+    
+    <div id="choices"></div>
+    <div id="message"></div>
+    <div id="score">てんすう: 0 / 0</div>
+
+    <script>
+        // クイズのデータ（国旗の絵文字、正解、ハズレの選択肢）
+        const quizData = [
+            { flag: "🇯🇵", answer: "にほん", options: ["にほん", "アメリカ", "ブラジル"] },
+            { flag: "🇺🇸", answer: "アメリカ", options: ["イギリス", "アメリカ", "フランス"] },
+            { flag: "🇫🇷", answer: "フランス", options: ["イタリア", "フランス", "ロシア"] },
+            { flag: "🇬🇧", answer: "イギリス", options: ["イギリス", "オーストラリア", "カナダ"] },
+            { flag: "🇦🇺", answer: "オーストラリア", options: ["ニュージーランド", "イギリス", "オーストラリア"] },
+            { flag: "🇧🇷", answer: "ブラジル", options: ["アルゼンチン", "ブラジル", "スペイン"] }
+        ];
+
+        let currentQuestion = 0;
+        let score = 0;
+
+        function loadQuestion() {
+            if (currentQuestion >= quizData.length) {
+                document.getElementById("flag-container").innerHTML = "🎉";
+                document.getElementById("choices").innerHTML = "";
+                document.getElementById("message").innerHTML = "ぜんぶ おわったよ！すごーい！";
+                return;
+            }
+
+            const currentData = quizData[currentQuestion];
+            document.getElementById("flag-container").textContent = currentData.flag;
+            document.getElementById("message").textContent = "";
+            
+            const choicesContainer = document.getElementById("choices");
+            choicesContainer.innerHTML = "";
+
+            currentData.options.forEach(option => {
+                const button = document.createElement("button");
+                button.classList.add("btn");
+                button.textContent = option;
+                button.onclick = () => checkAnswer(option, currentData.answer);
+                choicesContainer.appendChild(button);
+            });
+        }
+
+        function checkAnswer(selected, correct) {
+            const messageElement = document.getElementById("message");
+            if (selected === correct) {
+                messageElement.textContent = "⭕ せいかい！";
+                messageElement.style.color = "red";
+                score++;
+            } else {
+                messageElement.textContent = "❌ ざんねん！";
+                messageElement.style.color = "blue";
+            }
+            
+            currentQuestion++;
+            document.getElementById("score").textContent = `てんすう: ${score} / ${currentQuestion}`;
+            
+            // 1.5秒後に次の問題へ
+            setTimeout(loadQuestion, 1500);
+        }
+
+        // ゲームスタート
+        loadQuestion();
+    </script>
+</body>
+</html>
