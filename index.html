@@ -70,7 +70,7 @@
             box-shadow: 0 2px 0px rgba(0,0,0,0.15);
         }
 
-        /* ふわふわ揺れる国旗 */
+        /* ふわふわ揺れる国旗コンテナ */
         .floating-flag {
             animation: float-flag 3s ease-in-out infinite;
         }
@@ -105,7 +105,7 @@
             <h1 class="text-2xl md:text-4xl font-black text-amber-500 drop-shadow-sm flex items-center justify-center gap-2">
                 🗺️ せかいの国旗＆ちずあてゲーム 🗺️
             </h1>
-            <p class="text-gray-500 text-sm mt-1">ちずの ひかるばしょと こっきをみて くにのなまえを あてよう！</p>
+            <p class="text-gray-500 text-sm mt-1">ちずの ひかるばしょをみて くにのなまえを あてよう！</p>
             
             <!-- プレビュー環境でのみ自動表示される親切なインフォメーション -->
             <div id="fallback-badge" class="hidden mt-2 inline-block bg-amber-100 text-amber-800 text-xs px-3 py-1 rounded-full font-bold border border-amber-200">
@@ -126,11 +126,14 @@
             <svg id="map-svg" class="w-full h-full"></svg>
         </div>
 
-        <!-- 国旗とヒント表示 -->
-        <div class="my-5 flex flex-col sm:flex-row justify-center items-center gap-4 bg-rose-50 p-4 rounded-2xl border-2 border-dashed border-rose-200">
-            <div id="flag-display" class="text-7xl md:text-8xl floating-flag drop-shadow-md select-none">❓</div>
+        <!-- 国旗とヒント表示 (回答前はクエスチョンマーク、回答後にパッと国旗画像に変化) -->
+        <div class="my-5 flex flex-col sm:flex-row justify-center items-center gap-4 bg-rose-50 p-4 rounded-2xl border-2 border-dashed border-rose-200 min-h-[140px]">
+            <div id="flag-wrapper" class="w-32 h-20 flex justify-center items-center bg-white rounded-xl border-2 border-gray-100 shadow-md overflow-hidden floating-flag">
+                <!-- 初期表示はクエスチョンマークの絵文字。回答後に画像を動的挿入 -->
+                <div id="flag-display" class="text-6xl select-none">❓</div>
+            </div>
             <div class="text-center sm:text-left">
-                <div class="text-lg font-bold text-rose-600">このくにの なまえは なあに？</div>
+                <div id="hint-title" class="text-lg font-bold text-rose-600">この光っている くには どこかな？</div>
                 <div id="map-hint" class="text-sm text-gray-500 mt-1">★ ちずはドラッグでうごかしたり、ダブルクリックで拡大できるよ！</div>
             </div>
         </div>
@@ -146,7 +149,7 @@
         <!-- スコア表示 -->
         <div class="flex justify-between items-center border-t-2 border-gray-100 pt-4 text-gray-600 font-bold">
             <div id="score" class="text-lg">てんすう: 0 / 0</div>
-            <div id="progress" class="text-lg">だい 1 / 10 もん</div>
+            <div id="progress" class="text-lg">だい 1 / 15 もん</div>
         </div>
     </div>
 
@@ -154,24 +157,45 @@
     <div class="text-gray-400 text-xs mt-4">地図データ提供: Natural Earth (World Atlas 110m) / Fallback Vector Engine</div>
 
     <script>
-        // 国旗、国コード(ISO 3166-1 numeric)、緯度経度、ひらがな名、漢字・英語名
+        // 33カ国分の高精度な国データ（ISO数値、alpha-2コード、座標、表示名、予備絵文字）
         const quizData = [
-            { id: "392", name: "にほん (日本)", flag: "🇯🇵", coords: [138.25, 36.2 ] },
-            { id: "840", name: "アメリカ", flag: "🇺🇸", coords: [-95.7, 37.09] },
-            { id: "826", name: "イギリス", flag: "🇬🇧", coords: [-1.17, 52.35] },
-            { id: "250", name: "フランス", flag: "🇫🇷", coords: [2.21, 46.22] },
-            { id: "036", name: "オーストラリア", flag: "🇦🇺", coords: [133.77, -25.27] },
-            { id: "076", name: "ブラジル", flag: "🇧🇷", coords: [-51.92, -14.23] },
-            { id: "818", name: "エジプト", flag: "🇪🇬", coords: [30.8, 26.8] },
-            { id: "356", name: "インド", flag: "🇮🇳", coords: [78.96, 20.59] },
-            { id: "124", name: "カナダ", flag: "🇨🇦", coords: [-106.34, 56.13] },
-            { id: "156", name: "ちゅうごく (中国)", flag: "🇨🇳", coords: [104.19, 35.86] },
-            { id: "276", name: "ドイツ", flag: "🇩🇪", coords: [10.45, 51.16] },
-            { id: "643", name: "ロシア", flag: "🇷🇺", coords: [105.31, 61.52] },
-            { id: "380", name: "イタリア", flag: "🇮🇹", coords: [12.56, 41.87] },
-            { id: "484", name: "メキシコ", flag: "🇲🇽", coords: [-102.55, 23.63] },
-            { id: "032", name: "アルゼンチン", flag: "🇦🇷", coords: [-63.61, -38.41] }
+            { id: "392", code: "jp", name: "にほん (日本)", flag: "🇯🇵", coords: [138.25, 36.2 ] },
+            { id: "840", code: "us", name: "アメリカ", flag: "🇺🇸", coords: [-95.7, 37.09] },
+            { id: "826", code: "gb", name: "イギリス", flag: "🇬🇧", coords: [-1.17, 52.35] },
+            { id: "250", code: "fr", name: "フランス", flag: "🇫🇷", coords: [2.21, 46.22] },
+            { id: "036", code: "au", name: "オーストラリア", flag: "🇦🇺", coords: [133.77, -25.27] },
+            { id: "076", code: "br", name: "ブラジル", flag: "🇧🇷", coords: [-51.92, -14.23] },
+            { id: "818", code: "eg", name: "エジプト", flag: "🇪🇬", coords: [30.8, 26.8] },
+            { id: "356", code: "in", name: "インド", flag: "🇮🇳", coords: [78.96, 20.59] },
+            { id: "124", code: "ca", name: "カナダ", flag: "🇨🇦", coords: [-106.34, 56.13] },
+            { id: "156", code: "cn", name: "ちゅうごく (中国)", flag: "🇨🇳", coords: [104.19, 35.86] },
+            { id: "276", code: "de", name: "ドイツ", flag: "🇩🇪", coords: [10.45, 51.16] },
+            { id: "643", code: "ru", name: "ロシア", flag: "🇷🇺", coords: [105.31, 61.52] },
+            { id: "380", code: "it", name: "イタリア", flag: "🇮🇹", coords: [12.56, 41.87] },
+            { id: "484", code: "mx", name: "メキシコ", flag: "🇲🇽", coords: [-102.55, 23.63] },
+            { id: "032", code: "ar", name: "アルゼンチン", flag: "🇦🇺", coords: [-63.61, -38.41] },
+            { id: "710", code: "za", name: "みなみアフリカ", flag: "🇿🇦", coords: [25.0, -29.0] },
+            { id: "682", code: "sa", name: "サウジアラビア", flag: "🇸🇦", coords: [45.0, 24.0] },
+            { id: "724", code: "スペイン", flag: "🇪🇸", coords: [-3.7, 40.4] },
+            { id: "752", code: "se", name: "スウェーデン", flag: "🇸🇪", coords: [18.6, 60.1] },
+            { id: "404", code: "ke", name: "ケニア", flag: "🇰🇪", coords: [37.9, -0.02] },
+            { id: "792", code: "tr", name: "トルコ", flag: "🇹🇷", coords: [35.0, 39.0] },
+            { id: "764", code: "th", name: "タイ", flag: "🇹🇭", coords: [100.99, 15.87] },
+            { id: "360", code: "id", name: "インドネシア", flag: "🇮🇩", coords: [113.92, -0.78] },
+            { id: "496", code: "mn", name: "モンゴル", flag: "🇲🇳", coords: [103.84, 46.86] },
+            { id: "410", code: "kr", name: "かんこく (韓国)", flag: "🇰🇷", coords: [127.76, 35.9] },
+            { id: "756", code: "ch", name: "スイス", flag: "🇨🇭", coords: [8.22, 46.8] },
+            { id: "554", code: "nz", name: "ニュージーランド", flag: "🇳🇿", coords: [174.88, -40.9] },
+            { id: "604", code: "pe", name: "ペルー", flag: "🇵🇪", coords: [-75.0, -9.19] },
+            { id: "152", code: "cl", name: "チリ", flag: "🇨🇱", coords: [-71.5, -35.6] },
+            { id: "608", code: "ph", name: "フィリピン", flag: "🇵🇭", coords: [121.77, 12.87] },
+            { id: "704", code: "vn", name: "ベトナム", flag: "🇻🇳", coords: [108.27, 14.05] },
+            { id: "450", code: "mg", name: "マダガスカル", flag: "🇲🇬", coords: [46.86, -18.76] },
+            { id: "528", code: "nl", name: "オランダ", flag: "🇳🇱", coords: [5.29, 52.13] }
         ];
+
+        // 1ゲームの問題数
+        const TOTAL_QUESTIONS = 15;
 
         let currentQuestionIndex = 0;
         let score = 0;
@@ -392,8 +416,9 @@
 
         // ゲームの開始
         function startGame() {
-            // 問題をランダムにシャッフル
-            shuffledQuestions = [...quizData].sort(() => Math.random() - 0.5);
+            // 問題をランダムにシャッフルし、15問を抽出
+            const fullShuffled = [...quizData].sort(() => Math.random() - 0.5);
+            shuffledQuestions = fullShuffled.slice(0, TOTAL_QUESTIONS);
             currentQuestionIndex = 0;
             score = 0;
             
@@ -404,18 +429,18 @@
         // スコアUIの更新
         function updateScoreUI() {
             document.getElementById("score").textContent = `てんすう: ${score} / ${currentQuestionIndex}`;
-            document.getElementById("progress").textContent = `だい ${Math.min(currentQuestionIndex + 1, shuffledQuestions.length)} / ${shuffledQuestions.length} もん`;
+            document.getElementById("progress").textContent = `だい ${Math.min(currentQuestionIndex + 1, TOTAL_QUESTIONS)} / ${TOTAL_QUESTIONS} もん`;
         }
 
-        // 4択肢のランダム生成
-        function getFourChoices(correctAnswer) {
-            let choices = [correctAnswer];
-            const others = quizData.filter(item => item.name !== correctAnswer);
+        // 4択肢のランダム生成 (正解データオブジェクトを渡し、その他3つをDBから選定)
+        function getFourChoices(correctItem) {
+            let choices = [correctItem];
+            const others = quizData.filter(item => item.id !== correctItem.id);
             const shuffledOthers = others.sort(() => Math.random() - 0.5);
             
             for (let i = 0; i < 3; i++) {
                 if (shuffledOthers[i]) {
-                    choices.push(shuffledOthers[i].name);
+                    choices.push(shuffledOthers[i]);
                 }
             }
             return choices.sort(() => Math.random() - 0.5);
@@ -437,9 +462,13 @@
             const currentData = shuffledQuestions[currentQuestionIndex];
             updateScoreUI();
 
-            // 国旗の表示
-            document.getElementById("flag-display").textContent = currentData.flag;
+            // ★ 出題中：上部のヒントエリアは国旗を隠して「❓」を表示
+            const flagDisplay = document.getElementById("flag-display");
+            flagDisplay.innerHTML = "❓";
+            flagDisplay.className = "text-6xl select-none"; // クエスチョン用のクラス
+
             document.getElementById("message").textContent = "";
+            document.getElementById("hint-title").textContent = "この光っている くには どこかな？";
 
             // 緯度経度から地図上のピクセル座標に変換
             const [pixelX, pixelY] = projection(currentData.coords);
@@ -464,7 +493,7 @@
                 const width = mapContainer.clientWidth || 800;
                 const height = mapContainer.clientHeight || 450;
                 
-                const scale = 2.2;
+                const scale = 2.4;
                 const transform = d3.zoomIdentity
                     .translate(width / 2, height / 2)
                     .scale(scale)
@@ -495,10 +524,10 @@
             const choicesArea = document.getElementById("choices-area");
             choicesArea.innerHTML = "";
             
-            const choices = getFourChoices(currentData.name);
-            choices.forEach((option, index) => {
+            const choices = getFourChoices(currentData);
+            choices.forEach((optionItem, index) => {
                 const button = document.createElement("button");
-                // 子供が押しやすいようカラフルでぷにぷにしたボタンデザイン（国旗と文字が並ぶようflexboxに設定）
+                // 子供が押しやすいようカラフルでぷにぷにしたボタンデザイン
                 button.className = "pop-btn w-full py-4 px-6 text-xl font-bold rounded-2xl text-white focus:outline-none transition-all flex items-center justify-center gap-3";
                 
                 // ボタンごとのパステルな配色分け
@@ -507,39 +536,56 @@
                 else if (index === 2) button.classList.add("bg-emerald-400", "hover:bg-emerald-500", "active:bg-emerald-600");
                 else button.classList.add("bg-amber-400", "hover:bg-amber-500", "active:bg-amber-600");
 
-                // 選択肢の国名に対応する国旗データを検索して取得
-                const countryInfo = quizData.find(item => item.name === option);
-                const flagEmoji = countryInfo ? countryInfo.flag : "❓";
-
-                // ボタンのなかに少し大きめの国旗絵文字と国名を並べて表示
-                button.innerHTML = `<span class="text-2xl">${flagEmoji}</span> <span>${option}</span>`;
-                button.onclick = () => checkAnswer(option, currentData.name);
+                // ボタンのなかに国旗画像と国名を並べて表示 (選択肢は常に国旗が見える状態)
+                button.innerHTML = `
+                    <div class="w-12 h-8 rounded border border-white/40 overflow-hidden shadow-sm flex items-center justify-center bg-white shrink-0">
+                        <img src="https://flagcdn.com/w80/${optionItem.code}.png" 
+                             alt="${optionItem.name}" 
+                             class="max-w-full max-h-full object-cover" 
+                             onerror="this.onerror=null; this.parentNode.innerHTML='<span class=\'text-xl\'>${optionItem.flag}</span>';">
+                    </div>
+                    <span>${optionItem.name}</span>
+                `;
+                button.onclick = () => checkAnswer(optionItem, currentData);
                 choicesArea.appendChild(button);
             });
         }
 
         // 正誤判定処理
-        function checkAnswer(selected, correct) {
+        function checkAnswer(selectedItem, correctItem) {
             // 回答中は一時的に全ボタンを無効化
             const buttons = document.querySelectorAll(".pop-btn");
             buttons.forEach(btn => btn.disabled = true);
 
+            // ★ 答えた瞬間に、上部の❓を「正解の国旗」のリアルな画像へパッと切り替える！
+            const flagDisplay = document.getElementById("flag-display");
+            flagDisplay.innerHTML = `
+                <img src="https://flagcdn.com/w160/${correctItem.code}.png" 
+                     alt="${correctItem.name}" 
+                     class="max-w-full max-h-full object-contain border border-gray-200 shadow-sm"
+                     onerror="this.onerror=null; this.parentNode.innerHTML='<span class=\'text-5xl\'>${correctItem.flag}</span>';">
+            `;
+            // クラスを上書きして画像を美しく表示するコンテナに調整
+            flagDisplay.className = "w-full h-full flex items-center justify-center p-1";
+
             const messageElement = document.getElementById("message");
-            if (selected === correct) {
+            if (selectedItem.id === correctItem.id) {
                 messageElement.textContent = "⭕ せいかい！やったね！";
                 messageElement.className = "text-center text-3xl font-bold text-emerald-500 animate-bounce";
                 playSound('correct');
                 score++;
             } else {
-                messageElement.textContent = `❌ ざんねん！こたえは「${correct}」だよ`;
+                messageElement.textContent = `❌ ざんねん！こたえは「${correctItem.name}」だよ`;
                 messageElement.className = "text-center text-xl font-bold text-rose-500 animate-pulse";
                 playSound('incorrect');
             }
 
+            document.getElementById("hint-title").textContent = `ここは 「${correctItem.name}」 だよ！`;
+
             currentQuestionIndex++;
             updateScoreUI();
 
-            // 3秒後に次の問題に進む（ゆっくり答えを確認させて、地図全体のズームを引くため）
+            // 3秒後に次の問題に進む（ゆっくり答えと国旗を確認させて、地図全体のズームを引くため）
             setTimeout(() => {
                 // 一旦、地図を元の広域表示に戻してから次の問題へ
                 if (!isFallbackMap) {
@@ -556,15 +602,20 @@
             // 地図を中央に戻す
             if (!isFallbackMap) resetZoom();
 
-            document.getElementById("flag-display").textContent = "🏆";
+            // 上部にトロフィーを表示
+            const flagDisplay = document.getElementById("flag-display");
+            flagDisplay.innerHTML = "🏆";
+            flagDisplay.className = "text-6xl select-none";
+
             const messageElement = document.getElementById("message");
             messageElement.textContent = "ぜんぶクリア！おめでとう！";
             messageElement.className = "text-center text-3xl font-bold text-amber-500";
+            document.getElementById("hint-title").textContent = "またチャレンジしてね！";
 
             const choicesArea = document.getElementById("choices-area");
             choicesArea.innerHTML = `
                 <div class="col-span-full flex flex-col items-center py-4">
-                    <p class="text-xl font-bold text-gray-600 mb-4">きみのてんすうは 【 ${score} / ${quizData.length} 】 てん だったよ！</p>
+                    <p class="text-xl font-bold text-gray-600 mb-4">きみのてんすうは 【 ${score} / ${TOTAL_QUESTIONS} 】 てん だったよ！</p>
                     <button onclick="startGame()" class="pop-btn py-4 px-10 text-2xl font-bold rounded-full bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white shadow-lg">
                         🔄 もういっかい あそぶ！
                     </button>
