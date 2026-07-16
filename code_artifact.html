@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>せかいの国旗＆高精度ちずあてゲーム</title>
+    <!-- 子供向け丸ゴシックフォント -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Kosugi+Maru&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS (デザイン調整用) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- D3.js ＆ TopoJSON (高精度世界地図描画用ライブラリ) -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/topojson@3"></script>
+
+    <style>
+        body {
+            font-family: 'Kosugi Maru', sans-serif;
+            background-color: #fffae6; /* やさしいパステルイエロー */
+        }
+
+        /* 地図の国々のデフォルトのスタイル */
+        .country {
+            fill: #c6ebd0; /* 優しいグリーン */
+            stroke: #ffffff; /* 白い国境線 */
+            stroke-width: 0.5px;
+            transition: fill 0.3s ease, stroke-width 0.3s ease;
+            cursor: pointer;
+        }
+
+        .country:hover {
+            fill: #b2dfbc;
+        }
+
+        /* 出題中のターゲット国のスタイル（点滅アニメーション） */
+        .target-country {
+            fill: #ff4081 !important; /* 目立つピンク */
+            stroke: #ffffff;
+            stroke-width: 1.5px;
+            animation: pulse-country 1.5s infinite alternate;
+        }
+
+        @keyframes pulse-country {
+            0% { fill: #ff4081; }
+            100% { fill: #ff80ab; }
+        }
+
+        /* ターゲットを指すピコピコピン */
+        .map-pin {
+            fill: #ff3d00;
+            stroke: #ffffff;
+            stroke-width: 1.5px;
+            pointer-events: none;
+            animation: bounce-pin 0.8s infinite alternate;
+        }
+
+        @keyframes bounce-pin {
+            0% { transform: translateY(0); }
+            100% { transform: translateY(-8px); }
+        }
+
+        /* ボタンのぷにぷにした押し心地 */
+        .pop-btn {
+            transition: all 0.1s ease;
+            box-shadow: 0 6px 0px rgba(0,0,0,0.15);
+        }
+        .pop-btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 2px 0px rgba(0,0,0,0.15);
+        }
+
+        /* ふわふわ揺れる国旗 */
+        .floating-flag {
+            animation: float-flag 3s ease-in-out infinite;
+        }
+        @keyframes float-flag {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-5px) rotate(3deg); }
+        }
+
+        /* フォールバック用の可愛いお絵描き大陸のスタイル */
+        .fallback-continent {
+            fill: #c2e5cb;
+            stroke: #aad6b6;
+            stroke-width: 2px;
+            rx: 30px; /* 角丸効果 */
+        }
+    </style>
+</head>
+<body class="p-4 md:p-6 text-gray-800 min-h-screen flex flex-col items-center">
+
+    <!-- ローディング画面 (地図データのロード待ち用) -->
+    <div id="loader" class="fixed inset-0 bg-white flex flex-col justify-center items-center z-50 transition-opacity duration-500">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-yellow-500 mb-4"></div>
+        <div class="text-xl font-bold text-yellow-600 animate-pulse">ちずを じゅんび しているよ...</div>
+        <div class="text-sm text-gray-400 mt-2">すこしだけ まってね！</div>
+    </div>
+
+    <!-- ゲーム全体のコンテナ -->
+    <div class="w-full max-w-4xl bg-white rounded-3xl p-6 shadow-xl border-4 border-yellow-300">
+        
+        <!-- ヘッダー -->
+        <div class="text-center mb-4">
+            <h1 class="text-2xl md:text-4xl font-black text-amber-500 drop-shadow-sm flex items-center justify-center gap-2">
+                🗺️ せかいの国旗＆ちずあてゲーム 🗺️
+            </h1>
+            <p class="text-gray-500 text-sm mt-1">ちずの ひかるばしょと こっきをみて くにのなまえを あてよう！</p>
+            
+            <!-- プレビュー環境でのみ自動表示される親切なインフォメーション -->
+            <div id="fallback-badge" class="hidden mt-2 inline-block bg-amber-100 text-amber-800 text-xs px-3 py-1 rounded-full font-bold border border-amber-200">
+                ⚠️ プレビューせいげんのため「おえかきちず」でうごいています。ネットにのせると本物になります！
+            </div>
+        </div>
+
+        <!-- 地図エリア -->
+        <div class="relative w-full aspect-[16/9] bg-sky-100 rounded-2xl overflow-hidden border-2 border-sky-200 shadow-inner">
+            <!-- ズーム操作用のコントローラー（スマホ・PC用） -->
+            <div id="zoom-controls" class="absolute top-2 right-2 flex flex-col gap-1 z-10">
+                <button onclick="zoomIn()" class="w-10 h-10 bg-white hover:bg-gray-100 rounded-lg shadow-md flex items-center justify-center text-xl font-bold border border-gray-200">+</button>
+                <button onclick="zoomOut()" class="w-10 h-10 bg-white hover:bg-gray-100 rounded-lg shadow-md flex items-center justify-center text-xl font-bold border border-gray-200">-</button>
+                <button onclick="resetZoom()" class="w-10 h-10 bg-white hover:bg-gray-100 rounded-lg shadow-md flex items-center justify-center text-sm font-bold border border-gray-200">リセット</button>
+            </div>
+            
+            <!-- D3.jsで描画されるSVG地図 -->
+            <svg id="map-svg" class="w-full h-full"></svg>
+        </div>
+
+        <!-- 国旗とヒント表示 -->
+        <div class="my-5 flex flex-col sm:flex-row justify-center items-center gap-4 bg-rose-50 p-4 rounded-2xl border-2 border-dashed border-rose-200">
+            <div id="flag-display" class="text-7xl md:text-8xl floating-flag drop-shadow-md select-none">❓</div>
+            <div class="text-center sm:text-left">
+                <div class="text-lg font-bold text-rose-600">このくにの なまえは なあに？</div>
+                <div id="map-hint" class="text-sm text-gray-500 mt-1">★ ちずはドラッグでうごかしたり、ダブルクリックで拡大できるよ！</div>
+            </div>
+        </div>
+
+        <!-- 4択の選択肢ボタンエリア -->
+        <div id="choices-area" class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <!-- JavaScriptでここに4つのボタンが追加されます -->
+        </div>
+
+        <!-- 正解・不正解メッセージ -->
+        <div id="message" class="text-center text-2xl font-bold h-10 mb-2"></div>
+
+        <!-- スコア表示 -->
+        <div class="flex justify-between items-center border-t-2 border-gray-100 pt-4 text-gray-600 font-bold">
+            <div id="score" class="text-lg">てんすう: 0 / 0</div>
+            <div id="progress" class="text-lg">だい 1 / 10 もん</div>
+        </div>
+    </div>
+
+    <!-- ひらがな・漢字切り替えの親切設計用の余白 -->
+    <div class="text-gray-400 text-xs mt-4">地図データ提供: Natural Earth (World Atlas 110m) / Fallback Vector Engine</div>
+
+    <script>
+        // 国旗、国コード(ISO 3166-1 numeric)、緯度経度、ひらがな名、漢字・英語名
+        const quizData = [
+            { id: "392", name: "にほん (日本)", flag: "🇯🇵", coords: [138.25, 36.2 ] },
+            { id: "840", name: "アメリカ", flag: "🇺🇸", coords: [-95.7, 37.09] },
+            { id: "826", name: "イギリス", flag: "🇬🇧", coords: [-1.17, 52.35] },
+            { id: "250", name: "フランス", flag: "🇫🇷", coords: [2.21, 46.22] },
+            { id: "036", name: "オーストラリア", flag: "🇦🇺", coords: [133.77, -25.27] },
+            { id: "076", name: "ブラジル", flag: "🇧🇷", coords: [-51.92, -14.23] },
+            { id: "818", name: "エジプト", flag: "🇪🇬", coords: [30.8, 26.8] },
+            { id: "356", name: "インド", flag: "🇮🇳", coords: [78.96, 20.59] },
+            { id: "124", name: "カナダ", flag: "🇨🇦", coords: [-106.34, 56.13] },
+            { id: "156", name: "ちゅうごく (中国)", flag: "🇨🇳", coords: [104.19, 35.86] },
+            { id: "276", name: "ドイツ", flag: "🇩🇪", coords: [10.45, 51.16] },
+            { id: "643", name: "ロシア", flag: "🇷🇺", coords: [105.31, 61.52] },
+            { id: "380", name: "イタリア", flag: "🇮🇹", coords: [12.56, 41.87] },
+            { id: "484", name: "メキシコ", flag: "🇲🇽", coords: [-102.55, 23.63] },
+            { id: "032", name: "アルゼンチン", flag: "🇦🇷", coords: [-63.61, -38.41] }
+        ];
+
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let shuffledQuestions = [];
+        let isFallbackMap = false; // プレビュー用の簡易地図が動いているかどうか
+        
+        // D3地図用変数
+        let svg, g, projection, path, zoom;
+        let worldData; // 読み込んだ世界の地理データ
+
+        // レトロなゲーム風効果音作成機能 (ブラウザがその場でピコピコ音を作成)
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(type) {
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                if (type === 'correct') {
+                    // 正解音: ピコーン！
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+                    osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.12); // A5
+                    gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.35);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.35);
+                } else if (type === 'incorrect') {
+                    // 不正解音: ブブー
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+                    gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.4);
+                }
+            } catch (e) {
+                console.log("AudioContext is not allowed to start yet.");
+            }
+        }
+
+        // ゲーム起動時に地図データを準備
+        window.onload = function() {
+            initD3Map();
+        };
+
+        function initD3Map() {
+            const mapContainer = document.querySelector('.aspect-\\[16\\/9\\]');
+            const width = mapContainer.clientWidth || 800;
+            const height = mapContainer.clientHeight || 450;
+
+            svg = d3.select("#map-svg")
+                .attr("viewBox", `0 0 ${width} ${height}`);
+
+            g = svg.append("g");
+
+            // 子供が見やすい正距円筒図法を採用
+            projection = d3.geoEquirectangular()
+                .scale(width / 6.2) // コンテナにちょうど収まるサイズに調整
+                .translate([width / 2, height / 2 + 10]);
+
+            path = d3.geoPath().projection(projection);
+
+            // ドラッグ＆ズームの設定
+            zoom = d3.zoom()
+                .scaleExtent([1, 8]) // 拡大は8倍まで
+                .on("zoom", (event) => {
+                    g.attr("transform", event.transform);
+                });
+
+            svg.call(zoom);
+
+            // タイムアウトを設けて、CORSエラーやセキュリティ制限で引っかかった場合は自動的に「おえかきちずモード」へ
+            let isLoaded = false;
+            const loadTimeout = setTimeout(() => {
+                if (!isLoaded) {
+                    console.warn("地図のダウンロードがタイムアウトしました。おえかきちず(フォールバック)モードで起動します。");
+                    setupFallbackMap();
+                }
+            }, 3000); // 3秒でタイムアウト
+
+            // 国連などの標準世界地図データ(110m解像度)をロード
+            fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json")
+                .then(response => {
+                    if (!response.ok) throw new Error("CORS or Network Error");
+                    return response.json();
+                })
+                .then(topoData => {
+                    isLoaded = true;
+                    clearTimeout(loadTimeout);
+
+                    worldData = topoData;
+                    const countries = topojson.feature(topoData, topoData.objects.countries).features;
+
+                    // 陸地を描画
+                    g.selectAll(".country")
+                        .data(countries)
+                        .enter()
+                        .append("path")
+                        .attr("class", "country")
+                        .attr("id", d => `country-${Number(d.id)}`) // IDを数値にしてセット
+                        .attr("d", path)
+                        .append("title")
+                        .text(d => d.properties.name);
+
+                    hideLoader();
+                    startGame();
+                })
+                .catch(err => {
+                    isLoaded = true;
+                    clearTimeout(loadTimeout);
+                    console.warn("D3地図データのロードに失敗しました:", err.message);
+                    setupFallbackMap();
+                });
+        }
+
+        // プレビュー等で地図が読み込めないとき用の「お絵描き地図」作成
+        function setupFallbackMap() {
+            isFallbackMap = true;
+            document.getElementById("fallback-badge").classList.remove("hidden");
+            document.getElementById("map-hint").textContent = "★ プレビューかんきょう用の「おえかきちず」だよ！本番サイトでは本物のちずが動くよ。";
+            
+            // ズームボタンを非表示にする（簡易地図はズーム不要のため）
+            document.getElementById("zoom-controls").style.display = "none";
+            // ズームジェスチャーを無効化
+            svg.on(".zoom", null);
+
+            const mapContainer = document.querySelector('.aspect-\\[16\\/9\\]');
+            const width = mapContainer.clientWidth || 800;
+            const height = mapContainer.clientHeight || 450;
+
+            // D3のグループをクリア
+            g.selectAll("*").remove();
+
+            // 海の背景グラデーション効果（SVG内）
+            g.append("rect")
+                .attr("width", width)
+                .attr("height", height)
+                .attr("fill", "#e0f2fe"); // 薄い水色
+
+            // デフォルメした「おえかき大陸」を描く
+            // ユーラシア＆アフリカ大陸
+            g.append("rect")
+                .attr("class", "fallback-continent")
+                .attr("x", width * 0.3)
+                .attr("y", height * 0.15)
+                .attr("width", width * 0.45)
+                .attr("height", height * 0.55);
+
+            // 北アメリカ大陸
+            g.append("rect")
+                .attr("class", "fallback-continent")
+                .attr("x", width * 0.05)
+                .attr("y", height * 0.12)
+                .attr("width", width * 0.22)
+                .attr("height", height * 0.35);
+
+            // 南アメリカ大陸
+            g.append("rect")
+                .attr("class", "fallback-continent")
+                .attr("x", width * 0.12)
+                .attr("y", height * 0.48)
+                .attr("width", width * 0.15)
+                .attr("height", height * 0.4);
+
+            // オーストラリア大陸
+            g.append("rect")
+                .attr("class", "fallback-continent")
+                .attr("x", width * 0.72)
+                .attr("y", height * 0.6)
+                .attr("width", width * 0.16)
+                .attr("height", height * 0.25);
+
+            // 大陸にゆるいテキストラベルを追加
+            const labelData = [
+                { text: "ユーラシア・アフリカ", x: width * 0.52, y: height * 0.45 },
+                { text: "アメリカ大陸", x: width * 0.16, y: height * 0.32 },
+                { text: "オセアニア", x: width * 0.8, y: height * 0.72 }
+            ];
+
+            g.selectAll(".fallback-label")
+                .data(labelData)
+                .enter()
+                .append("text")
+                .attr("x", d => d.x)
+                .attr("y", d => d.y)
+                .attr("text-anchor", "middle")
+                .attr("fill", "#83a990")
+                .attr("font-size", "14px")
+                .attr("font-weight", "bold")
+                .text(d => d.text);
+
+            hideLoader();
+            startGame();
+        }
+
+        function hideLoader() {
+            document.getElementById("loader").classList.add("opacity-0");
+            setTimeout(() => {
+                document.getElementById("loader").style.display = "none";
+            }, 500);
+        }
+
+        // ズーム操作用ボタンのAPI
+        function zoomIn() {
+            if (isFallbackMap) return;
+            svg.transition().duration(300).call(zoom.scaleBy, 1.5);
+        }
+        function zoomOut() {
+            if (isFallbackMap) return;
+            svg.transition().duration(300).call(zoom.scaleBy, 0.7);
+        }
+        function resetZoom() {
+            if (isFallbackMap) return;
+            svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+        }
+
+        // ゲームの開始
+        function startGame() {
+            // 問題をランダムにシャッフル
+            shuffledQuestions = [...quizData].sort(() => Math.random() - 0.5);
+            currentQuestionIndex = 0;
+            score = 0;
+            
+            updateScoreUI();
+            loadQuestion();
+        }
+
+        // スコアUIの更新
+        function updateScoreUI() {
+            document.getElementById("score").textContent = `てんすう: ${score} / ${currentQuestionIndex}`;
+            document.getElementById("progress").textContent = `だい ${Math.min(currentQuestionIndex + 1, shuffledQuestions.length)} / ${shuffledQuestions.length} もん`;
+        }
+
+        // 4択肢のランダム生成
+        function getFourChoices(correctAnswer) {
+            let choices = [correctAnswer];
+            const others = quizData.filter(item => item.name !== correctAnswer);
+            const shuffledOthers = others.sort(() => Math.random() - 0.5);
+            
+            for (let i = 0; i < 3; i++) {
+                if (shuffledOthers[i]) {
+                    choices.push(shuffledOthers[i].name);
+                }
+            }
+            return choices.sort(() => Math.random() - 0.5);
+        }
+
+        // 問題の読み込みと地図のズーム処理
+        function loadQuestion() {
+            if (currentQuestionIndex >= shuffledQuestions.length) {
+                // 全問終了
+                showGameClear();
+                return;
+            }
+
+            // 前のハイライトとピンを一旦すべて消去
+            g.selectAll(".country").classed("target-country", false);
+            g.selectAll(".map-pin").remove();
+            g.selectAll(".fallback-target-circle").remove();
+
+            const currentData = shuffledQuestions[currentQuestionIndex];
+            updateScoreUI();
+
+            // 国旗の表示
+            document.getElementById("flag-display").textContent = currentData.flag;
+            document.getElementById("message").textContent = "";
+
+            // 緯度経度から地図上のピクセル座標に変換
+            const [pixelX, pixelY] = projection(currentData.coords);
+
+            if (!isFallbackMap) {
+                // 通常モード（本物の地図）：対象の国をハイライト
+                const targetId = Number(currentData.id);
+                const targetCountrySelector = g.select(`#country-${targetId}`);
+                
+                if (!targetCountrySelector.empty()) {
+                    targetCountrySelector.classed("target-country", true);
+                }
+
+                // ピコピコと弾むピン（矢印SVG）を描画
+                g.append("path")
+                    .attr("class", "map-pin")
+                    .attr("d", "M-12,-30 L12,-30 L0,0 Z") // 三角形のシンプルなピン
+                    .attr("transform", `translate(${pixelX}, ${pixelY})`);
+
+                // 対象の国の場所にゆっくりズームイン＆自動センタリング
+                const mapContainer = document.querySelector('.aspect-\\[16\\/9\\]');
+                const width = mapContainer.clientWidth || 800;
+                const height = mapContainer.clientHeight || 450;
+                
+                const scale = 2.2;
+                const transform = d3.zoomIdentity
+                    .translate(width / 2, height / 2)
+                    .scale(scale)
+                    .translate(-pixelX, -pixelY);
+
+                svg.transition()
+                    .duration(1200) // 1.2秒かけてスムーズにズーム
+                    .call(zoom.transform, transform);
+            } else {
+                // フォールバック（お絵描き）モード：国を直接塗れない代わりに、座標位置に大きな「ターゲット円（ピコピコ光るサークル）」を描画
+                g.append("circle")
+                    .attr("class", "fallback-target-circle")
+                    .attr("cx", pixelX)
+                    .attr("cy", pixelY)
+                    .attr("r", 20)
+                    .attr("fill", "#ff4081")
+                    .attr("opacity", 0.6)
+                    .style("animation", "pulse-country 1s infinite alternate");
+
+                // ピコピコピンを配置
+                g.append("path")
+                    .attr("class", "map-pin")
+                    .attr("d", "M-12,-30 L12,-30 L0,0 Z")
+                    .attr("transform", `translate(${pixelX}, ${pixelY})`);
+            }
+
+            // 4択の選択肢ボタンエリア
+            const choicesArea = document.getElementById("choices-area");
+            choicesArea.innerHTML = "";
+            
+            const choices = getFourChoices(currentData.name);
+            choices.forEach((option, index) => {
+                const button = document.createElement("button");
+                // 子供が押しやすいようカラフルでぷにぷにしたボタンデザイン（国旗と文字が並ぶようflexboxに設定）
+                button.className = "pop-btn w-full py-4 px-6 text-xl font-bold rounded-2xl text-white focus:outline-none transition-all flex items-center justify-center gap-3";
+                
+                // ボタンごとのパステルな配色分け
+                if (index === 0) button.classList.add("bg-rose-400", "hover:bg-rose-500", "active:bg-rose-600");
+                else if (index === 1) button.classList.add("bg-sky-400", "hover:bg-sky-500", "active:bg-sky-600");
+                else if (index === 2) button.classList.add("bg-emerald-400", "hover:bg-emerald-500", "active:bg-emerald-600");
+                else button.classList.add("bg-amber-400", "hover:bg-amber-500", "active:bg-amber-600");
+
+                // 選択肢の国名に対応する国旗データを検索して取得
+                const countryInfo = quizData.find(item => item.name === option);
+                const flagEmoji = countryInfo ? countryInfo.flag : "❓";
+
+                // ボタンのなかに少し大きめの国旗絵文字と国名を並べて表示
+                button.innerHTML = `<span class="text-2xl">${flagEmoji}</span> <span>${option}</span>`;
+                button.onclick = () => checkAnswer(option, currentData.name);
+                choicesArea.appendChild(button);
+            });
+        }
+
+        // 正誤判定処理
+        function checkAnswer(selected, correct) {
+            // 回答中は一時的に全ボタンを無効化
+            const buttons = document.querySelectorAll(".pop-btn");
+            buttons.forEach(btn => btn.disabled = true);
+
+            const messageElement = document.getElementById("message");
+            if (selected === correct) {
+                messageElement.textContent = "⭕ せいかい！やったね！";
+                messageElement.className = "text-center text-3xl font-bold text-emerald-500 animate-bounce";
+                playSound('correct');
+                score++;
+            } else {
+                messageElement.textContent = `❌ ざんねん！こたえは「${correct}」だよ`;
+                messageElement.className = "text-center text-xl font-bold text-rose-500 animate-pulse";
+                playSound('incorrect');
+            }
+
+            currentQuestionIndex++;
+            updateScoreUI();
+
+            // 3秒後に次の問題に進む（ゆっくり答えを確認させて、地図全体のズームを引くため）
+            setTimeout(() => {
+                // 一旦、地図を元の広域表示に戻してから次の問題へ
+                if (!isFallbackMap) {
+                    resetZoom();
+                    setTimeout(loadQuestion, 500);
+                } else {
+                    loadQuestion();
+                }
+            }, 3000);
+        }
+
+        // 全問クリア画面
+        function showGameClear() {
+            // 地図を中央に戻す
+            if (!isFallbackMap) resetZoom();
+
+            document.getElementById("flag-display").textContent = "🏆";
+            const messageElement = document.getElementById("message");
+            messageElement.textContent = "ぜんぶクリア！おめでとう！";
+            messageElement.className = "text-center text-3xl font-bold text-amber-500";
+
+            const choicesArea = document.getElementById("choices-area");
+            choicesArea.innerHTML = `
+                <div class="col-span-full flex flex-col items-center py-4">
+                    <p class="text-xl font-bold text-gray-600 mb-4">きみのてんすうは 【 ${score} / ${quizData.length} 】 てん だったよ！</p>
+                    <button onclick="startGame()" class="pop-btn py-4 px-10 text-2xl font-bold rounded-full bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white shadow-lg">
+                        🔄 もういっかい あそぶ！
+                    </button>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
